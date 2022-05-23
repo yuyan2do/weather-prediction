@@ -644,6 +644,9 @@ class UNetModel(nn.Module):
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
 
+        # print(f"x.size()={x.size()}, x={x}")
+        # print(f"timesteps.size()={timesteps.size()}, timesteps={timesteps}")
+
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 

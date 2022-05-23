@@ -1,7 +1,9 @@
+import os
 import math
 import random
 
 from PIL import Image
+from imageio import imread
 import blobfile as bf
 from mpi4py import MPI
 import numpy as np
@@ -46,10 +48,20 @@ def load_data(
         class_names = [bf.basename(path).split("_")[0] for path in all_files]
         sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
         classes = [sorted_classes[x] for x in class_names]
+
+    meta_paths = "/mnt/yyua/data/qixiang/TestA.csv"
+    with bf.BlobFile(meta_paths, "rb") as f:
+        lines = f.readlines()
+        #samples = [line.split(",") for line in lines]
+        samples = [line.strip().decode("utf-8").split(",") for line in lines]
+    #print(f"samples size: {len(samples)}")
+    #print(f"samples: {samples[:2]}")
+
     dataset = ImageDataset(
         image_size,
         all_files,
         classes=classes,
+        samples=samples,
         shard=MPI.COMM_WORLD.Get_rank(),
         num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
@@ -85,37 +97,55 @@ class ImageDataset(Dataset):
         resolution,
         image_paths,
         classes=None,
+        samples=None,
         shard=0,
         num_shards=1,
         random_crop=False,
-        random_flip=True,
+        random_flip=False,
     ):
         super().__init__()
         self.resolution = resolution
         self.local_images = image_paths[shard:][::num_shards]
+        if samples != None:
+            self.samples = samples[shard:][::num_shards]
+            self.folder = os.path.dirname(image_paths[0])
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.random_crop = random_crop
         self.random_flip = random_flip
 
     def __len__(self):
+        if self.samples != None:
+            return len(self.samples)
         return len(self.local_images)
 
     def __getitem__(self, idx):
-        path = self.local_images[idx]
-        with bf.BlobFile(path, "rb") as f:
-            pil_image = Image.open(f)
-            pil_image.load()
-        pil_image = pil_image.convert("RGB")
-
-        if self.random_crop:
-            arr = random_crop_arr(pil_image, self.resolution)
+        if self.samples != None:
+            sample_list = self.samples[idx]
+            arr = []
+            for img_name in sample_list:
+                fname = os.path.join(self.folder, "wind_" + img_name)
+                #img = imread(fname).astype(np.float32) / 127.5 - 1
+                img = imread(fname) / 127.5 - 1
+                arr.append(img)
+            arr = np.stack(arr, axis=-1)
+            #print(f"arr.size()={arr.shape}")
+            #print(f"arr={arr[0, :8, :8]}")
         else:
-            arr = center_crop_arr(pil_image, self.resolution)
+            path = self.local_images[idx]
+            with bf.BlobFile(path, "rb") as f:
+                pil_image = Image.open(f)
+                pil_image.load()
+            pil_image = pil_image.convert("RGB")
 
-        if self.random_flip and random.random() < 0.5:
-            arr = arr[:, ::-1]
+            if self.random_crop:
+                arr = random_crop_arr(pil_image, self.resolution)
+            else:
+                arr = center_crop_arr(pil_image, self.resolution)
 
-        arr = arr.astype(np.float32) / 127.5 - 1
+            if self.random_flip and random.random() < 0.5:
+                arr = arr[:, ::-1]
+
+            arr = arr.astype(np.float32) / 127.5 - 1
 
         out_dict = {}
         if self.local_classes is not None:

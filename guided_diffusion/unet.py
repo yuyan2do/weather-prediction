@@ -7,6 +7,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 
+from . import dist_util
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .nn import (
     checkpoint,
@@ -271,6 +272,7 @@ class AttentionBlock(nn.Module):
         num_head_channels=-1,
         use_checkpoint=False,
         use_new_attention_order=False,
+        use_time_attention=False,
     ):
         super().__init__()
         self.channels = channels
@@ -284,7 +286,9 @@ class AttentionBlock(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.norm = normalization(channels)
         self.qkv = conv_nd(1, channels, channels * 3, 1)
-        if use_new_attention_order:
+        if use_time_attention:
+            self.attention = TimeQKVAttention(self.num_heads)
+        elif use_new_attention_order:
             # split qkv before split heads
             self.attention = QKVAttention(self.num_heads)
         else:
@@ -357,6 +361,51 @@ class QKVAttentionLegacy(nn.Module):
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
 
+
+class TimeQKVAttention(nn.Module):
+    """
+    A module which performs QKV attention and splits in a different order.
+    """
+
+    def __init__(self, n_heads):
+        super().__init__()
+        self.n_heads = n_heads
+        #self.mask = th.nn.Parameter(th.tril(th.ones([20, 20]).half())[:,:, None])
+        #self.mask.requires_grad_(False)
+        self.mask = th.tril(th.ones([20, 20]).half())[:,:, None].to(dist_util.dev())
+
+    def forward(self, qkv):
+        """
+        Apply QKV attention.
+
+        :param qkv: an [N x (3 * C * H) x T] tensor of Qs, Ks, and Vs.
+        :return: an [N x (C * H) x T] tensor after attention.
+        """
+        bs, width, length = qkv.shape
+        #print(f"bs={bs}, width={width}, length={length}")
+        assert width % (3 * self.n_heads) == 0
+        ch = width // (3 * self.n_heads)
+        #qkv = th.transpose(qkv, 0, -1)
+        q, k, v = qkv.chunk(3, dim=1)
+        scale = 1 / math.sqrt(math.sqrt(ch))
+        weight = th.einsum(
+            "tcb,scb->tsb",
+            (q * scale).reshape(bs, ch, length * self.n_heads),
+            (k * scale).reshape(bs, ch, length * self.n_heads),
+        )  # More stable with f16 than dividing afterwards
+        weight = weight*self.mask
+        #print(f"weight={weight[:,:,0]}")
+        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+        #print(f"weight {weight.dtype}, v {v.dtype}")
+        a = th.einsum("tsb,scb->tcb", weight, v.reshape(bs, ch, length * self.n_heads))
+        #a = th.transpose(a, 0, -1)
+        #print(f"a={a.reshape(bs, -1, length).size()}")
+        #exit()
+        return a.reshape(bs, -1, length)
+
+    @staticmethod
+    def count_flops(model, _x, y):
+        return count_flops_attn(model, _x, y)
 
 class QKVAttention(nn.Module):
     """
@@ -457,6 +506,7 @@ class UNetModel(nn.Module):
         self.out_channels = out_channels
         self.num_res_blocks = num_res_blocks
         self.attention_resolutions = attention_resolutions
+        print(f"attention_resolutions={attention_resolutions}")
         self.dropout = dropout
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
@@ -499,6 +549,7 @@ class UNetModel(nn.Module):
                     )
                 ]
                 ch = int(mult * model_channels)
+                #print(f"ds={ds}, {ds in attention_resolutions}")
                 if ds in attention_resolutions:
                     layers.append(
                         AttentionBlock(
@@ -509,6 +560,16 @@ class UNetModel(nn.Module):
                             use_new_attention_order=use_new_attention_order,
                         )
                     )
+                layers.append(
+                    AttentionBlock(
+                        ch,
+                        use_checkpoint=use_checkpoint,
+                        num_heads=num_heads,
+                        num_head_channels=num_head_channels,
+                        use_new_attention_order=use_new_attention_order,
+                        use_time_attention=True,
+                    )
+                )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
                 input_block_chans.append(ch)
@@ -553,6 +614,14 @@ class UNetModel(nn.Module):
                 num_head_channels=num_head_channels,
                 use_new_attention_order=use_new_attention_order,
             ),
+            AttentionBlock(
+                ch,
+                use_checkpoint=use_checkpoint,
+                num_heads=num_heads,
+                num_head_channels=num_head_channels,
+                use_new_attention_order=use_new_attention_order,
+                use_time_attention=True,
+            ),
             ResBlock(
                 ch,
                 time_embed_dim,
@@ -590,6 +659,16 @@ class UNetModel(nn.Module):
                             use_new_attention_order=use_new_attention_order,
                         )
                     )
+                layers.append(
+                    AttentionBlock(
+                        ch,
+                        use_checkpoint=use_checkpoint,
+                        num_heads=num_heads,
+                        num_head_channels=num_head_channels,
+                        use_new_attention_order=use_new_attention_order,
+                        use_time_attention=True,
+                    )
+                )
                 if level and i == num_res_blocks:
                     out_ch = ch
                     layers.append(

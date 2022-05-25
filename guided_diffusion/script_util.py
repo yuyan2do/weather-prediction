@@ -162,6 +162,10 @@ def create_model(
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
+    # hard code ds as 16
+    attention_ds = [16]
+    print(f"attention_resolutions={attention_resolutions}")
+    print(f"attention_ds={attention_ds}")
 
     return UNetModel(
         image_size=image_size,

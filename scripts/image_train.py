@@ -18,7 +18,9 @@ from guided_diffusion.train_util import TrainLoop
 
 
 def main():
-    args = create_argparser().parse_args()
+    parser = create_argparser()
+    #parser.add_argument("--local_rank", type=int)
+    args = parser.parse_args()
 
     dist_util.setup_dist()
     logger.configure()

@@ -463,6 +463,7 @@ class UNetModel(nn.Module):
         self.num_classes = num_classes
         self.use_checkpoint = use_checkpoint
         self.dtype = th.float16 if use_fp16 else th.float32
+        print(f"self.dtype={self.dtype}, use_checkpoint={use_checkpoint}")
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
@@ -644,22 +645,30 @@ class UNetModel(nn.Module):
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
 
-        # print(f"x.size()={x.size()}, x={x}")
-        # print(f"timesteps.size()={timesteps.size()}, timesteps={timesteps}")
+        #print(f"x.size()={x.size()}, x.type()={x.type()} x={x}")
+        #print(f"timesteps.size()={timesteps.size()}, timesteps={timesteps}")
+        cxt_len = x.shape[1]
+        x = x.view((-1,) + x.shape[2:])
+        timesteps = timesteps.view((-1,) + timesteps.shape[2:])
 
         hs = []
-        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels, max_period=40))
+        # emb = emb.view((-1,) + emb.shape[2:])
 
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
 
         h = x.type(self.dtype)
+        #print(f"h.size() = {h.size()}")
         for module in self.input_blocks:
             h = module(h, emb)
+            #print(f"h.size() = {h.size()}")
             hs.append(h)
         h = self.middle_block(h, emb)
+        #print(f"h.size() = {h.size()}")
         for module in self.output_blocks:
+            #print(f"h.size() = {h.size()}, hs.size() = {hs[-1].size()}")
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
         h = h.type(x.dtype)

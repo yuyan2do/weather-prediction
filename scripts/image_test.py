@@ -86,7 +86,7 @@ def main():
                 y = model_output.cpu().detach().numpy()
                 y = (y + 1) * 127.5
                 y = np.clip(y, 0, 255).astype(np.uint8)
-                save_img(f, i, y)
+                save_img(f, i+1, y)
 
     return
 

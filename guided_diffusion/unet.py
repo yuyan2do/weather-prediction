@@ -728,10 +728,13 @@ class UNetModel(nn.Module):
         #print(f"timesteps.size()={timesteps.size()}, timesteps={timesteps}")
         cxt_len = x.shape[1]
         x = x.view((-1,) + x.shape[2:])
+
+        #assert timesteps is None
         timesteps = timesteps.view((-1,) + timesteps.shape[2:])
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels, max_period=40))
+        #emb = timestep_embedding(timesteps, self.model_channels, max_period=40)
         # emb = emb.view((-1,) + emb.shape[2:])
 
         if self.num_classes is not None:

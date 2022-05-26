@@ -196,7 +196,8 @@ class TrainLoop:
             last_batch = (i + self.microbatch) >= batch.shape[0]
             # t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
             t = micro_cond["t"]
-            weights = (t <= 20)
+            #print(f"t.size() = {t.size()}, t={t}")
+            weights = 1
 
             #print(f"weights.size()={weights.size()}")
             # print(f"micro.size()={micro.size()}, micro={micro}")

@@ -123,21 +123,43 @@ class ImageDataset(Dataset):
         if self.samples != None:
             sample_list = self.samples[idx]
             arr = []
-            for img_name in sample_list[:20]:
+            y_arr = []
+            idx = random.randint(0, 19)
+            is_first = True
+            #print(f"idx={idx}, sample_list={sample_list}")
+            for img_name in sample_list[idx:idx+20]:
                 fname = os.path.join(self.folder, "wind_" + img_name)
                 #img = imread(fname).astype(np.float32) / 127.5 - 1
+                #print(f"fname={fname}")
                 img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
-                arr.append(np.expand_dims(img, axis=0))
+                data = np.expand_dims(img, axis=0)
+                arr.append(data)
+                if is_first:
+                    is_first = False
+                    continue
+                else:
+                    y_arr.append(data)
+
+            for img_name in [sample_list[idx+20]]:
+                fname = os.path.join(self.folder, "wind_" + img_name)
+                #print(f"fname={fname}")
+                #img = imread(fname).astype(np.float32) / 127.5 - 1
+                img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                data = np.expand_dims(img, axis=0)
+                y_arr.append(data)
+
             arr = np.stack(arr, axis=-1)
+            y_arr = np.stack(y_arr, axis=-1)
             #print(f"arr.size()={arr.shape}")
             #print(f"arr={arr[0, :8, :8]}")
-            y_t = random.randint(19, 39)
-            y_img_name = sample_list[y_t]
-            y_fname = os.path.join(self.folder, "wind_" + y_img_name)
-            y_img = np.asarray(imread(y_fname)).astype(np.float32) / 127.5 - 1
+            #y_t = random.randint(19, 39)
+            #y_img_name = sample_list[y_t]
+            #y_fname = os.path.join(self.folder, "wind_" + y_img_name)
+            #y_img = np.asarray(imread(y_fname)).astype(np.float32) / 127.5 - 1
             out_dict = {}
-            out_dict["y"] = np.expand_dims(np.expand_dims(y_img, axis=0), axis=0)
-            out_dict["t"] = np.arange(y_t, y_t - 20, -1)
+            #out_dict["y"] = np.expand_dims(np.expand_dims(y_img, axis=0), axis=0)
+            out_dict["y"] = np.transpose(y_arr, [3, 0, 1, 2])
+            out_dict["t"] = np.arange(idx, idx+arr.shape[-1])
             return np.transpose(arr, [3, 0, 1, 2]), out_dict
         else:
             path = self.local_images[idx]

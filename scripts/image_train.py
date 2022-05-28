@@ -15,6 +15,7 @@ from guided_diffusion.script_util import (
 )
 from guided_diffusion.train_util import TrainLoop
 
+from torchinfo import summary
 
 def main():
     args = create_argparser().parse_args()
@@ -26,8 +27,12 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    #summary(model, input_size=(1, 4, 480, 560))
+    #return
+
     model.to(dist_util.dev())
-    schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
+    #schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
+    schedule_sampler = None
 
     logger.log("creating data loader...")
     data = load_data(

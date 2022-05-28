@@ -71,7 +71,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
 
     def forward(self, x, emb):
         for layer in self:
-            if isinstance(layer, TimestepBlock):
+            if isinstance(layer, TimestepBlock) and False:
                 x = layer(x, emb)
             else:
                 x = layer(x)
@@ -196,13 +196,13 @@ class ResBlock(TimestepBlock):
         else:
             self.h_upd = self.x_upd = nn.Identity()
 
-        self.emb_layers = nn.Sequential(
-            nn.SiLU(),
-            linear(
-                emb_channels,
-                2 * self.out_channels if use_scale_shift_norm else self.out_channels,
-            ),
-        )
+        #self.emb_layers = nn.Sequential(
+        #    nn.SiLU(),
+        #    linear(
+        #        emb_channels,
+        #        2 * self.out_channels if use_scale_shift_norm else self.out_channels,
+        #    ),
+        #)
         self.out_layers = nn.Sequential(
             normalization(self.out_channels),
             nn.SiLU(),
@@ -221,7 +221,7 @@ class ResBlock(TimestepBlock):
         else:
             self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
-    def forward(self, x, emb):
+    def forward(self, x, emb=None):
         """
         Apply the block to a Tensor, conditioned on a timestep embedding.
 
@@ -242,16 +242,18 @@ class ResBlock(TimestepBlock):
             h = in_conv(h)
         else:
             h = self.in_layers(x)
-        emb_out = self.emb_layers(emb).type(h.dtype)
-        while len(emb_out.shape) < len(h.shape):
-            emb_out = emb_out[..., None]
+        #emb_out = self.emb_layers(emb).type(h.dtype)
+        #while len(emb_out.shape) < len(h.shape):
+        #    emb_out = emb_out[..., None]
         if self.use_scale_shift_norm:
-            out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
-            scale, shift = th.chunk(emb_out, 2, dim=1)
-            h = out_norm(h) * (1 + scale) + shift
-            h = out_rest(h)
+            assert False, "use_scale_shift_norm should be false"
+            #out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
+            #scale, shift = th.chunk(emb_out, 2, dim=1)
+            #h = out_norm(h) * (1 + scale) + shift
+            #h = out_rest(h)
+            pass
         else:
-            h = h + emb_out
+            #h = h + emb_out
             h = self.out_layers(h)
         return self.skip_connection(x) + h
 
@@ -384,6 +386,7 @@ class QKVAttention(nn.Module):
             (q * scale).view(bs * self.n_heads, ch, length),
             (k * scale).view(bs * self.n_heads, ch, length),
         )  # More stable with f16 than dividing afterwards
+        #print(f"weight shape: {weight.size()}")
         weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
         a = th.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
         return a.reshape(bs, -1, length)
@@ -447,6 +450,7 @@ class UNetModel(nn.Module):
         use_new_attention_order=False,
     ):
         super().__init__()
+        #print(f"attention_resolutions={attention_resolutions}")
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
@@ -468,11 +472,11 @@ class UNetModel(nn.Module):
         self.num_heads_upsample = num_heads_upsample
 
         time_embed_dim = model_channels * 4
-        self.time_embed = nn.Sequential(
-            linear(model_channels, time_embed_dim),
-            nn.SiLU(),
-            linear(time_embed_dim, time_embed_dim),
-        )
+        #self.time_embed = nn.Sequential(
+        #    linear(model_channels, time_embed_dim),
+        #    nn.SiLU(),
+        #    linear(time_embed_dim, time_embed_dim),
+        #)
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
@@ -534,6 +538,7 @@ class UNetModel(nn.Module):
                 ch = out_ch
                 input_block_chans.append(ch)
                 ds *= 2
+                #print(f"ds={ds}")
                 self._feature_size += ch
 
         self.middle_block = TimestepEmbedSequential(
@@ -609,10 +614,12 @@ class UNetModel(nn.Module):
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
 
-        self.out = nn.Sequential(
+        self.out_norm = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
-            zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
+        )
+        self.out = nn.Sequential(
+            zero_module(conv_nd(dims, input_ch+1, out_channels, 3, padding=1)),
         )
 
     def convert_to_fp16(self):
@@ -631,7 +638,7 @@ class UNetModel(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps=None, y=None):
         """
         Apply the model to an input batch.
 
@@ -645,11 +652,12 @@ class UNetModel(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
 
         hs = []
-        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        #emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        emb = None
 
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
-            emb = emb + self.label_emb(y)
+        #if self.num_classes is not None:
+        #    assert y.shape == (x.shape[0],)
+        #    emb = emb + self.label_emb(y)
 
         h = x.type(self.dtype)
         for module in self.input_blocks:
@@ -660,7 +668,10 @@ class UNetModel(nn.Module):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
         h = h.type(x.dtype)
-        return self.out(h)
+
+        h = self.out_norm(h)
+        o_h = th.cat([x[:,:1], h], dim=1)
+        return self.out(o_h)
 
 
 class SuperResModel(UNetModel):

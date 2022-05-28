@@ -55,7 +55,7 @@ class TrainLoop:
         self.resume_checkpoint = resume_checkpoint
         self.use_fp16 = use_fp16
         self.fp16_scale_growth = fp16_scale_growth
-        self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
+        self.schedule_sampler = schedule_sampler # or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
 
@@ -186,13 +186,14 @@ class TrainLoop:
                 for k, v in cond.items()
             }
             last_batch = (i + self.microbatch) >= batch.shape[0]
-            t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+            #t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+            t = None
 
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
                 self.ddp_model,
                 micro,
-                t,
+                None,
                 model_kwargs=micro_cond,
             )
 
@@ -207,9 +208,9 @@ class TrainLoop:
                     t, losses["loss"].detach()
                 )
 
-            loss = (losses["loss"] * weights).mean()
+            loss = (losses["loss"]).mean()
             log_loss_dict(
-                self.diffusion, t, {k: v * weights for k, v in losses.items()}
+                self.diffusion, t, {k: v for k, v in losses.items()}
             )
             self.mp_trainer.backward(loss)
 
@@ -296,6 +297,7 @@ def log_loss_dict(diffusion, ts, losses):
     for key, values in losses.items():
         logger.logkv_mean(key, values.mean().item())
         # Log the quantiles (four quartiles, in particular).
+        continue
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)

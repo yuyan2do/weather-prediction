@@ -1,7 +1,9 @@
+import os
 import math
 import random
 
 from PIL import Image
+from imageio import imread
 import blobfile as bf
 from mpi4py import MPI
 import numpy as np
@@ -46,10 +48,19 @@ def load_data(
         class_names = [bf.basename(path).split("_")[0] for path in all_files]
         sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
         classes = [sorted_classes[x] for x in class_names]
+
+    #meta_paths = "/mnt/yyua/data/qixiang/TestA.csv"
+    meta_paths = "/mnt/yyua/data/qixiang/Train.csv"
+    with bf.BlobFile(meta_paths, "rb") as f:
+        lines = f.readlines()
+        samples = [line.strip().decode("utf-8").split(",") for line in lines]
+
+
     dataset = ImageDataset(
         image_size,
         all_files,
         classes=classes,
+        samples=samples,
         shard=MPI.COMM_WORLD.Get_rank(),
         num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
@@ -85,6 +96,7 @@ class ImageDataset(Dataset):
         resolution,
         image_paths,
         classes=None,
+        samples=None,
         shard=0,
         num_shards=1,
         random_crop=False,
@@ -97,30 +109,66 @@ class ImageDataset(Dataset):
         self.random_crop = random_crop
         self.random_flip = random_flip
 
+        if samples != None:
+            self.samples = samples[shard:][::num_shards]
+            self.folder = os.path.dirname(image_paths[0])
+
     def __len__(self):
+        if self.samples != None:
+            return len(self.samples)
         return len(self.local_images)
 
     def __getitem__(self, idx):
-        path = self.local_images[idx]
-        with bf.BlobFile(path, "rb") as f:
-            pil_image = Image.open(f)
-            pil_image.load()
-        pil_image = pil_image.convert("RGB")
+        if self.samples != None:
+            sample_list = self.samples[idx]
+            idx = random.randint(0, 19)
 
-        if self.random_crop:
-            arr = random_crop_arr(pil_image, self.resolution)
+            arr = []
+            y = None
+            cnt = 0
+            #print(f"idx={idx}")
+            #print(sample_list)
+            for img_name in sample_list[idx:][::5]:
+                fname = os.path.join(self.folder, "wind_" + img_name)
+                #print(f"img_name={img_name}")
+                img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                cnt += 1
+                if cnt <= 4:
+                    arr.append(img)
+                else:
+                    y = img
+                    break
+
+            arr = np.stack(arr, axis=0)
+            #print(f"arr shape={arr.shape}")
+            y = y[None, :, :]
+
+            out_dict = {}
+            out_dict["y"] = y
+
+            return arr, out_dict
+
         else:
-            arr = center_crop_arr(pil_image, self.resolution)
+            path = self.local_images[idx]
+            with bf.BlobFile(path, "rb") as f:
+                pil_image = Image.open(f)
+                pil_image.load()
+            pil_image = pil_image.convert("RGB")
 
-        if self.random_flip and random.random() < 0.5:
-            arr = arr[:, ::-1]
+            if self.random_crop:
+                arr = random_crop_arr(pil_image, self.resolution)
+            else:
+                arr = center_crop_arr(pil_image, self.resolution)
 
-        arr = arr.astype(np.float32) / 127.5 - 1
+            if self.random_flip and random.random() < 0.5:
+                arr = arr[:, ::-1]
 
-        out_dict = {}
-        if self.local_classes is not None:
-            out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
-        return np.transpose(arr, [2, 0, 1]), out_dict
+            arr = arr.astype(np.float32) / 127.5 - 1
+
+            out_dict = {}
+            if self.local_classes is not None:
+                out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
+            return np.transpose(arr, [2, 0, 1]), out_dict
 
 
 def center_crop_arr(pil_image, image_size):

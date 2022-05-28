@@ -125,10 +125,12 @@ class ImageDataset(Dataset):
 
             arr = []
             y = None
-            cnt = 0
             #print(f"idx={idx}")
             #print(sample_list)
-            for img_name in sample_list[idx:][::5]:
+
+            step = random.randint(1, 5)
+            cnt = 0
+            for img_name in sample_list[idx:][::step]:
                 fname = os.path.join(self.folder, "wind_" + img_name)
                 #print(f"img_name={img_name}")
                 img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
@@ -142,6 +144,16 @@ class ImageDataset(Dataset):
             arr = np.stack(arr, axis=0)
             #print(f"arr shape={arr.shape}")
             y = y[None, :, :]
+
+            # left <-> right
+            if random.random() < 0.5:
+                arr = arr[:, :, ::-1].copy()
+                y = y[:, :, ::-1].copy()
+
+            # up <-> down
+            if random.random() < 0.5:
+                arr = arr[:, ::-1, :].copy()
+                y = y[:, ::-1, :].copy()
 
             out_dict = {}
             out_dict["y"] = y

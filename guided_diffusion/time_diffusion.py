@@ -18,7 +18,9 @@ class TimeDiffusion:
         y = model_kwargs["y"]
 
         model_output = model(x_start)
-        mse = ((y - model_output) **2).mean(dim=list(range(1, len(y.shape))))
+        mse = (y - model_output) **2
+        loss = (mse * ((y.detach()+2) **2)).mean(dim=list(range(1, len(y.shape))))
+        mse = mse.mean(dim=list(range(1, len(y.shape))))
 
         terms = {}
         with th.no_grad():
@@ -29,6 +31,6 @@ class TimeDiffusion:
             terms["mse_ref"] = (mse.mean()/last_img_mse.mean())
 
         terms["mse_model"] = mse
-        terms["loss"] = mse
+        terms["loss"] = loss
 
         return terms

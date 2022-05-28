@@ -3,6 +3,7 @@ import functools
 import os
 
 import blobfile as bf
+import numpy as np
 import torch as th
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
@@ -40,6 +41,11 @@ class TrainLoop:
         lr_anneal_steps=0,
     ):
         self.model = model
+
+        model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        print(f"model parameters: {params}")
+
         self.diffusion = diffusion
         self.data = data
         self.batch_size = batch_size
@@ -55,7 +61,7 @@ class TrainLoop:
         self.resume_checkpoint = resume_checkpoint
         self.use_fp16 = use_fp16
         self.fp16_scale_growth = fp16_scale_growth
-        self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
+        self.schedule_sampler = schedule_sampler
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
 
@@ -66,6 +72,7 @@ class TrainLoop:
         self.sync_cuda = th.cuda.is_available()
 
         self._load_and_sync_parameters()
+        print(f"use mixed precision trainer: {self.use_fp16}")
         self.mp_trainer = MixedPrecisionTrainer(
             model=self.model,
             use_fp16=self.use_fp16,
@@ -120,6 +127,7 @@ class TrainLoop:
                     )
                 )
 
+        #print(f"parameters\n{self.model.parameters()}")
         dist_util.sync_params(self.model.parameters())
 
     def _load_ema_parameters(self, rate):
@@ -186,7 +194,15 @@ class TrainLoop:
                 for k, v in cond.items()
             }
             last_batch = (i + self.microbatch) >= batch.shape[0]
-            t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+            # t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+            t = micro_cond["t"]
+            #print(f"t.size() = {t.size()}, t={t}")
+            weights = 1
+
+            #print(f"weights.size()={weights.size()}")
+            # print(f"micro.size()={micro.size()}, micro={micro}")
+            #print("micro", micro)
+            #print("micro_cond", micro_cond)
 
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
@@ -202,15 +218,16 @@ class TrainLoop:
                 with self.ddp_model.no_sync():
                     losses = compute_losses()
 
-            if isinstance(self.schedule_sampler, LossAwareSampler):
-                self.schedule_sampler.update_with_local_losses(
-                    t, losses["loss"].detach()
-                )
+            #if isinstance(self.schedule_sampler, LossAwareSampler):
+            #    self.schedule_sampler.update_with_local_losses(
+            #        t, losses["loss"].detach()
+            #    )
 
             loss = (losses["loss"] * weights).mean()
             log_loss_dict(
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}
             )
+
             self.mp_trainer.backward(loss)
 
     def _update_ema(self):
@@ -295,6 +312,8 @@ def find_ema_checkpoint(main_checkpoint, step, rate):
 def log_loss_dict(diffusion, ts, losses):
     for key, values in losses.items():
         logger.logkv_mean(key, values.mean().item())
+        if True:
+            continue
         # Log the quantiles (four quartiles, in particular).
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)

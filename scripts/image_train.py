@@ -6,6 +6,7 @@ import argparse
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.image_datasets import load_data
+from guided_diffusion.time_diffusion import TimeDiffusion
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
@@ -17,7 +18,9 @@ from guided_diffusion.train_util import TrainLoop
 
 
 def main():
-    args = create_argparser().parse_args()
+    parser = create_argparser()
+    #parser.add_argument("--local_rank", type=int)
+    args = parser.parse_args()
 
     dist_util.setup_dist()
     logger.configure()
@@ -26,8 +29,15 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+
+    #if args.use_fp16:
+    #    model.convert_to_fp16()
+
+    diffusion = TimeDiffusion()
+
     model.to(dist_util.dev())
-    schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
+    # schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
+    schedule_sampler = None
 
     logger.log("creating data loader...")
     data = load_data(

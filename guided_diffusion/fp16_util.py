@@ -200,7 +200,7 @@ class MixedPrecisionTrainer:
         logger.logkv_mean("param_norm", param_norm)
 
         self.master_params[0].grad.mul_(1.0 / (2 ** self.lg_loss_scale))
-        nn.utils.clip_grad_norm(self.master_params[0], 0.5)
+        nn.utils.clip_grad_norm_(self.master_params[0], 0.5)
         opt.step()
         zero_master_grads(self.master_params)
         master_params_to_model_params(self.param_groups_and_shapes, self.master_params)

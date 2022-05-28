@@ -43,13 +43,21 @@ def main():
         model.convert_to_fp16()
     model.eval()
 
-    def get_item(folder):
+    def get_item(f, i):
         if True:
             arr = []
-            for img_idx in range(1, 21, 1):
-                fname = os.path.join(folder, f"wind_{img_idx:03d}.png")
+            for img_idx in range(i+1, 21, 1):
+                path = os.path.join(args.data_dir, f)
+                fname = os.path.join(path, f"wind_{img_idx:03d}.png")
                 img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
                 arr.append(np.expand_dims(img, axis=0))
+            for img_idx in range(1, i+1, 1):
+                path = os.path.join(args.output_dir, f)
+                fname = os.path.join(path, f"wind_{i:03d}.png")
+                #fname = os.path.join(folder, f"wind_{img_idx:03d}.png")
+                img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                arr.append(np.expand_dims(img, axis=0))
+
             arr = np.stack(arr, axis=-1)
             return np.transpose(arr, [3, 0, 1, 2])
 
@@ -63,25 +71,26 @@ def main():
         imwrite(fname, y)
 
     timestep = []
-    for i in range(20, 40):
-        timestep.append(th.arange(i, i-20, -1).to(dist_util.dev()))
+    for i in range(0, 40):
+        timestep.append(th.arange(i, i+20, 1).to(dist_util.dev()))
 
     for f in sorted(os.listdir(args.data_dir)):
         d = os.path.join(args.data_dir, f)
         if os.path.isdir(d):
-            sample = np.expand_dims(get_item(d), axis=0)
             #print(sample.shape)
             print(f"start eval {d}")
 
-            x = th.from_numpy(sample).to(dist_util.dev())
-
             for i in range(20):
+                sample = np.expand_dims(get_item(f, i), axis=0)
+                x = th.from_numpy(sample).to(dist_util.dev())
+
                 t = timestep[i]
 
                 with th.no_grad():
                     model_output = model(x, t)
                     # last img
-                    model_output = model_output[0,0]
+                    # print(f"model_output {model_output.size()}")
+                    model_output = model_output[-1,0]
 
                 y = model_output.cpu().detach().numpy()
                 y = (y + 1) * 127.5

@@ -13,7 +13,7 @@ from .losses import normal_kl, discretized_gaussian_log_likelihood
 class TimeDiffusion:
     def __init__(self):
         # only compute loss for image from 11 to 20
-        #self.mse_mask = th.FloatTensor([1]*19+[0])[None, :].to(dist_util.dev())
+        self.mse_mask = th.FloatTensor([0]*10+[1]*10)[None, :].to(dist_util.dev())
         #self.t = th.arange(0, 20).to(dist_util.dev())
         #self.mse_mask.requires_grad_(False)
         pass
@@ -31,7 +31,7 @@ class TimeDiffusion:
         model_output = model_output.view((y.size()[0], -1)+y.size()[2:])
         mse = ((y - model_output) **2).mean(dim=list(range(2, len(y.shape))))
 
-        #mse = mse * self.mse_mask
+        mse = mse * self.mse_mask
         #print(f"y {y.dtype}, model_output {model_output.dtype}, mse {mse.dtype} {mse.size()}")
 
         terms = {}

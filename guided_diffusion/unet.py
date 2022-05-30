@@ -182,7 +182,7 @@ class ResBlock(TimestepBlock):
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
 
-        print(f"norm channels = {channels}")
+        #print(f"norm channels = {channels}")
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
@@ -523,14 +523,16 @@ class UNetModel(nn.Module):
                             use_new_attention_order=use_new_attention_order,
                         )
                     )
+                self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
-                #input_block_chans.append(ch)
+                input_block_chans.append(ch)
             if level != len(channel_mult) - 1:
             #if True:
-                out_ch = ch
-                layers.append(
-                #self.input_blocks.append(
-                #    TimestepEmbedSequential(
+                #out_ch = ch
+                out_ch = int(channel_mult[level+1] * model_channels)
+                #layers.append(
+                self.input_blocks.append(
+                    TimestepEmbedSequential(
                         ResBlock(
                             ch,
                             time_embed_dim,
@@ -545,15 +547,15 @@ class UNetModel(nn.Module):
                         else Downsample(
                             ch, conv_resample, dims=dims, out_channels=out_ch
                         )
-                #    )
+                    )
                 )
                 ch = out_ch
-                #input_block_chans.append(ch)
+                input_block_chans.append(ch)
                 ds *= 2
                 #print(f"ds={ds}")
                 self._feature_size += ch
-            input_block_chans.append(ch)
-            self.input_blocks.append(TimestepEmbedSequential(*layers))
+            #input_block_chans.append(ch)
+            #self.input_blocks.append(TimestepEmbedSequential(*layers))
 
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
@@ -582,14 +584,15 @@ class UNetModel(nn.Module):
         )
         self._feature_size += ch
 
+        #print(f"input_block_chans={input_block_chans}")
         self.output_blocks = nn.ModuleList([])
         channel_mult_rev = list(enumerate(channel_mult))[::-1]
         for level, mult in channel_mult_rev:
         #for level, mult in list(enumerate(channel_mult))[::-1]:
-            ich = input_block_chans.pop()
-            print(f"level={level}, ch={ch}, ich={ich}, mult={mult}")
+            #ich = input_block_chans.pop()
+            #print(f"level={level}, ch={ch}, ich={ich}, mult={mult}")
             for i in range(num_res_blocks + 1):
-                #ich = input_block_chans.pop()
+                ich = input_block_chans.pop()
                 #print(f"ch={ch}, ich={ich}")
                 layers = [
                     ResBlock(
@@ -616,13 +619,14 @@ class UNetModel(nn.Module):
                     )
                 #if level != len(channel_mult_rev) - 1 and i == num_res_blocks:
                 #if level and i == num_res_blocks:
-                if i == num_res_blocks:
-                    print(f"level={level} resblock_updown={resblock_updown} up={level != len(channel_mult_rev) - 1}")
+                if i == num_res_blocks and level != 0:
+                    #print(f"level={level} resblock_updown={resblock_updown} up={level != len(channel_mult_rev) - 1}")
                     #out_ch = ch
-                    out_ch = int(model_channels * channel_mult[max(0, level-1)])
+                    #out_ch = int(model_channels * channel_mult[max(0, level-1)])
 
+                    """
                     if resblock_updown or (level == len(channel_mult_rev) - 1):
-                        print(f"11111 {resblock_updown}")
+                        #print(f"11111 {resblock_updown}")
                         layers.append(
                             ResBlock(
                                 ch,
@@ -637,13 +641,17 @@ class UNetModel(nn.Module):
                             )
                         )
                     else: 
-                        print(f"22222 {resblock_updown}")
+                    """
+                    if True:
+                        #print(f"22222 {resblock_updown}")
+                        out_ch = int(model_channels * channel_mult[max(0, level-1)])
                         layers.append(
                             Upsample(ch, conv_resample, dims=dims, out_channels=out_ch)
                         )
+                        ch = out_ch
                     ds //= 2
-            self.output_blocks.append(TimestepEmbedSequential(*layers))
-            self._feature_size += ch
+                self.output_blocks.append(TimestepEmbedSequential(*layers))
+                self._feature_size += ch
 
         #self.out_norm = nn.Sequential(
         #    normalization(ch),
@@ -708,25 +716,27 @@ class UNetModel(nn.Module):
         #h = x.type(self.dtype)
 
         for module in self.input_blocks:
+            #print(f"hit input blocks")
             h = module(h, emb)
             hs.append(h)
             #print(f"h={h[0].mean(dim=list(range(1, len(h.shape)-1)))}")
 
-        print(f"start hs len: {len(hs)}")
-        for s in hs:
-            print(f"s.size()={s.size()}")
+
+        #print(f"start hs len: {len(hs)}")
+        #for s in hs:
+        #    print(f"s.size()={s.size()}")
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
-            print(f"h.size()={(h).size()}")
-            print(f"hs.size()={(hs[-1]).size()}")
+            #print(f"h.size()={(h).size()}")
+            #print(f"hs.size()={(hs[-1]).size()}")
             #print(f"h.size()={th.unsqueeze(h, dim=2).size()}")
             #print(f"hs.size()={th.unsqueeze(hs[-1], dim=2).size()}")
-            h = th.cat([h, hs.pop()], dim=1)
-            #h = th.cat([th.unsqueeze(h, dim=2), th.unsqueeze(hs.pop(), dim=2)], dim=2).view(h.size(0), -1, *(h.size()[-2:]))
+            #h = th.cat([h, hs.pop()], dim=1)
+            h = th.cat([th.unsqueeze(h, dim=2), th.unsqueeze(hs.pop(), dim=2)], dim=2).view(h.size(0), -1, *(h.size()[-2:]))
             h = module(h, emb)
         h = h.type(x.dtype)
 
-        print(f"end hs len: {len(hs)}")
+        #print(f"end hs len: {len(hs)}")
         #h = self.out_norm(h)
         #o_h = th.cat([x[:,:3], h], dim=1)
         #return self.out(o_h)

@@ -22,7 +22,7 @@ class TimeDiffusion:
         #weight = th.maximum(model_output.detach(), y.detach())+2
         weight = y.detach()+2
         # scale down loss for radar by 0.1
-        weight[:,:2] = 0
+        #weight[:,:2] = 0
         loss = mse * weight
 
         #loss = loss[:, -1:]

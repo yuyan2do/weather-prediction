@@ -6,8 +6,8 @@ numpy array. This can be used to produce samples for FID evaluation.
 import argparse
 import os
 
-from imageio import imread
-from imageio import imwrite
+from imageio.v2 import imread
+from imageio.v2 import imwrite
 
 import numpy as np
 import torch as th
@@ -48,30 +48,36 @@ def main():
             arr = []
             for img_idx in range(i+1, i+5*4, 5):
                 if img_idx <= 20:
-                    path = os.path.join(args.data_dir, f)
-                    fname = os.path.join(path, f"wind_{img_idx:03d}.png")
+                    for category in ["precip", "radar", "wind"]:
+                        fname = os.path.join(args.data_dir, category.capitalize(), f, f"{category}_{img_idx:03d}.png")
+                        img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                        arr.append(img)
                 else:
-                    path = os.path.join(args.output_dir, f)
-                    img_idx2 = img_idx - 20
-                    fname = os.path.join(path, f"wind_{img_idx2:03d}.png")
-                # print(f"fname={fname}")
-                img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
-                arr.append(img)
+                    for category in ["precip", "radar", "wind"]:
+                        img_idx2 = img_idx - 20
+                        fname = os.path.join(args.output_dir, category.capitalize(), f, f"{category}_{img_idx2:03d}.png")
+                        # print(f"read fname={fname}")
+                        img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                        arr.append(img)
 
             arr = np.stack(arr, axis=0)
             return arr
 
-    def save_img(f, i, y):
+    def save_img(f, img_idx, y):
         #print(f"args.output_dir={args.output_dir}")
-        path = os.path.join(args.output_dir, f)
-        Path(path).mkdir(parents=True, exist_ok=True)
+        #path = os.path.join(args.output_dir, f)
+        #Path(path).mkdir(parents=True, exist_ok=True)
         #print(f"path={path}")
-        fname = os.path.join(path, f"wind_{i:03d}.png")
-        #print(f"fname={fname}")
-        imwrite(fname, y)
+        #fname = os.path.join(path, f"wind_{i:03d}.png")
+        for i, category in enumerate(["precip", "radar", "wind"]):
+            path = os.path.join(args.output_dir, category.capitalize(), f)
+            Path(path).mkdir(parents=True, exist_ok=True)
+            fname = os.path.join(path, f"{category}_{img_idx:03d}.png")
+            #print(f"fname={fname}")
+            imwrite(fname, y[i])
 
-    for f in sorted(os.listdir(args.data_dir)):
-        d = os.path.join(args.data_dir, f)
+    for f in sorted(os.listdir(os.path.join(args.data_dir, "Wind"))):
+        d = os.path.join(args.data_dir, "Wind", f)
         if os.path.isdir(d):
             #print(sample.shape)
             print(f"start eval {d}")
@@ -84,7 +90,7 @@ def main():
                     model_output = model(x)
                     # last img
                     # print(f"model_output {model_output.size()}")
-                    model_output = model_output[0,0]
+                    model_output = model_output[0]
 
                 y = model_output.cpu().detach().numpy()
                 y = (y + 1) * 127.5

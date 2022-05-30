@@ -14,23 +14,39 @@ class TimeDiffusion:
     def __init__(self):
         pass
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+    def training_losses(self, model, x, t, model_kwargs=None, noise=None):
         y = model_kwargs["y"]
 
-        model_output = model(x_start)
+        model_output = model(x)
         mse = (y - model_output) **2
-        loss = (mse * ((y.detach()+2) **2)).mean(dim=list(range(1, len(y.shape))))
-        mse = mse.mean(dim=list(range(1, len(y.shape))))
+        weight = th.maximum(model_output.detach(), y.detach())+2
+        # scale down loss for radar by 0.1
+        weight[:,-2] *= 0.1
+        loss = mse * weight
+
+        #loss = loss[:, -1:]
+        #mse = mse
 
         terms = {}
         with th.no_grad():
-            last_img_mse = ((y[:, 0] - x_start[:, -1]) **2).mean(dim=list(range(1, len(y.shape)-1)))
-            #print(f"{mse[:,-1:]}, {last_img_mse}")
-            #print(f"{mse[:,-1:]}, {last_img_mse}")
-            terms["mse_base"] = last_img_mse
-            terms["mse_ref"] = (mse.mean()/last_img_mse.mean())
+            for i, category in enumerate(["precip", "radar", "wind"]):
+                #print(f"y.size()={y.size()}")
+                #print(f"x.size()={x.size()}")
+                #print(f"{category} y={y[0, i-3]}")
+                #print(f"{category} x={x[0, i-3]}")
+                #print(f"{category} model_output={model_output[0, i-3]}")
+                #print(f"{category} {(model_output[0, i-3]-x[0, i-3]).abs().sum()}")
 
-        terms["mse_model"] = mse
-        terms["loss"] = loss
+                last_img_mse = ((y[:, i-3] - x[:, i-3]) **2).mean()
+                #print(f"{mse[:,-1:]}, {last_img_mse}")
+                #print(f"{mse[:,-1:]}, {last_img_mse}")
+                terms["mse_" + category + "_base"] = last_img_mse
+                mse_model = mse[:, i-3].mean()
+                terms["mse_" + category + "_model"] = mse_model
+                terms["mse_" + category + "_ref"] = (mse_model/last_img_mse)
+                #print(f"{category}= {mse_model/last_img_mse}")
+
+        terms["mse_model"] = mse.mean(dim=list(range(1, len(y.shape))))
+        terms["loss"] = loss.mean(dim=list(range(1, len(y.shape))))
 
         return terms

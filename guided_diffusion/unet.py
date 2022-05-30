@@ -14,6 +14,7 @@ from .nn import (
     linear,
     avg_pool_nd,
     zero_module,
+    stride_init_module,
     normalization,
     timestep_embedding,
 )
@@ -94,8 +95,9 @@ class Upsample(nn.Module):
         self.out_channels = out_channels or channels
         self.use_conv = use_conv
         self.dims = dims
+        #print(f"up sample use_conv={use_conv}")
         if use_conv:
-            self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=1)
+            self.conv = stride_init_module(conv_nd(dims, self.channels, self.out_channels, 3, padding=1))
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -127,10 +129,11 @@ class Downsample(nn.Module):
         self.use_conv = use_conv
         self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
+        #print(f"down sample use_conv={use_conv}")
         if use_conv:
-            self.op = conv_nd(
+            self.op = stride_init_module(conv_nd(
                 dims, self.channels, self.out_channels, 3, stride=stride, padding=1
-            )
+            ))
         else:
             assert self.channels == self.out_channels
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
@@ -182,7 +185,7 @@ class ResBlock(TimestepBlock):
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
-            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+            stride_init_module(conv_nd(dims, channels, self.out_channels, 3, padding=1)),
         )
 
         self.updown = up or down
@@ -283,6 +286,7 @@ class AttentionBlock(nn.Module):
                 channels % num_head_channels == 0
             ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
             self.num_heads = channels // num_head_channels
+        #print(f"num_heads={num_heads}")
         self.use_checkpoint = use_checkpoint
         self.norm = normalization(channels)
         self.qkv = conv_nd(1, channels, channels * 3, 1)
@@ -451,6 +455,7 @@ class UNetModel(nn.Module):
     ):
         super().__init__()
         #print(f"attention_resolutions={attention_resolutions}")
+        #print(f"dropout={dropout}")
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
@@ -483,7 +488,8 @@ class UNetModel(nn.Module):
 
         ch = input_ch = int(channel_mult[0] * model_channels)
         self.input_blocks = nn.ModuleList(
-            [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))]
+            #[TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))]
+            [TimestepEmbedSequential(stride_init_module(conv_nd(dims, in_channels, ch, 3, padding=1)))]
         )
         self._feature_size = ch
         input_block_chans = [ch]
@@ -614,12 +620,15 @@ class UNetModel(nn.Module):
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
 
-        self.out_norm = nn.Sequential(
+        #self.out_norm = nn.Sequential(
+        #    normalization(ch),
+        #    nn.SiLU(),
+        #)
+        self.out = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
-        )
-        self.out = nn.Sequential(
-            zero_module(conv_nd(dims, input_ch+1, out_channels, 3, padding=1)),
+            #zero_module(conv_nd(dims, input_ch+3, out_channels, 3, padding=1)),
+            zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
         )
 
     def convert_to_fp16(self):
@@ -669,9 +678,11 @@ class UNetModel(nn.Module):
             h = module(h, emb)
         h = h.type(x.dtype)
 
-        h = self.out_norm(h)
-        o_h = th.cat([x[:,:1], h], dim=1)
-        return self.out(o_h)
+        #h = self.out_norm(h)
+        #o_h = th.cat([x[:,:3], h], dim=1)
+        #return self.out(o_h)
+        return self.out(h) + x[:,-3:]
+        #return self.out(h) + x[:,:3]
 
 
 class SuperResModel(UNetModel):

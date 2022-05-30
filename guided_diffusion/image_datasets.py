@@ -3,7 +3,7 @@ import math
 import random
 
 from PIL import Image
-from imageio import imread
+from imageio.v2 import imread
 import blobfile as bf
 from mpi4py import MPI
 import numpy as np
@@ -59,6 +59,7 @@ def load_data(
     dataset = ImageDataset(
         image_size,
         all_files,
+        data_dir=data_dir,
         classes=classes,
         samples=samples,
         shard=MPI.COMM_WORLD.Get_rank(),
@@ -95,6 +96,7 @@ class ImageDataset(Dataset):
         self,
         resolution,
         image_paths,
+        data_dir=None,
         classes=None,
         samples=None,
         shard=0,
@@ -111,7 +113,7 @@ class ImageDataset(Dataset):
 
         if samples != None:
             self.samples = samples[shard:][::num_shards]
-            self.folder = os.path.dirname(image_paths[0])
+            self.folder = data_dir
 
     def __len__(self):
         if self.samples != None:
@@ -121,42 +123,48 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         if self.samples != None:
             sample_list = self.samples[idx]
-            idx = random.randint(0, 19)
+            start_idx = random.randint(0, 19)
 
             arr = []
-            y = None
+            y_arr = []
             #print(f"idx={idx}")
             #print(sample_list)
 
-            step = random.randint(1, 5)
+            #step = random.randint(1, 5)
+            step = 5
             cnt = 0
-            for img_name in sample_list[idx:][::step]:
-                fname = os.path.join(self.folder, "wind_" + img_name)
-                #print(f"img_name={img_name}")
-                img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+            for img_name in sample_list[start_idx:][::step]:
                 cnt += 1
-                if cnt <= 4:
-                    arr.append(img)
-                else:
-                    y = img
+                for category in ["precip", "radar", "wind"]:
+                    fname = os.path.join(self.folder + "/" + category.capitalize(), category + "_" + img_name)
+                    #print(f"img_name={img_name}")
+                    img = np.asarray(imread(fname)).astype(np.float32) / 127.5 - 1
+                    if cnt <= 4:
+                        arr.append(img)
+
+                    if cnt == 5:
+                        y_arr.append(img)
+
+                if cnt == 5:
                     break
 
             arr = np.stack(arr, axis=0)
             #print(f"arr shape={arr.shape}")
-            y = y[None, :, :]
+            y_arr = np.stack(y_arr, axis=0)
+            #y = y[None, :, :]
 
             # left <-> right
             if random.random() < 0.5:
                 arr = arr[:, :, ::-1].copy()
-                y = y[:, :, ::-1].copy()
+                y_arr = y_arr[:, :, ::-1].copy()
 
             # up <-> down
             if random.random() < 0.5:
                 arr = arr[:, ::-1, :].copy()
-                y = y[:, ::-1, :].copy()
+                y_arr = y_arr[:, ::-1, :].copy()
 
             out_dict = {}
-            out_dict["y"] = y
+            out_dict["y"] = y_arr
 
             return arr, out_dict
 

@@ -74,6 +74,24 @@ def zero_module(module):
     return module
 
 
+def stride_init_module(module):
+    """
+    Zero out the parameters of a module and return it.
+    """
+    for p in module.parameters():
+        continue
+        #print(f"p.size()={p.size()}")
+        #print(f"before p={p}")
+        if p.dim() == 4:
+            for i in range(p.size(0)):
+                p.detach()[i,(i+1)%3::3,:,:].zero_()
+                p.detach()[i,(i+2)%3::3,:,:].zero_()
+        else:
+            p.detach().zero_()
+        #print(f"after p={p}")
+    return module
+
+
 def scale_module(module, scale):
     """
     Scale the parameters of a module and return it.

@@ -49,8 +49,8 @@ def load_data(
         sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
         classes = [sorted_classes[x] for x in class_names]
 
-    #meta_paths = "/mnt/yyua/data/qixiang/TestA.csv"
-    meta_paths = "/mnt/yyua/data/qixiang/Train.csv"
+    meta_paths = "/mnt/yyua/data/qixiang/TestA.csv"
+    #meta_paths = "/mnt/yyua/data/qixiang/Train.csv"
     with bf.BlobFile(meta_paths, "rb") as f:
         lines = f.readlines()
         samples = [line.strip().decode("utf-8").split(",") for line in lines]
@@ -121,9 +121,11 @@ class ImageDataset(Dataset):
         return len(self.local_images)
 
     def __getitem__(self, idx):
+        idx = 0
         if self.samples != None:
             sample_list = self.samples[idx]
             start_idx = random.randint(0, 19)
+            start_idx = 0
 
             arr = []
             y_arr = []

@@ -23,9 +23,23 @@ def conv_nd(dims, *args, **kwargs):
     """
     Create a 1D, 2D, or 3D convolution module.
     """
+
+    #del kwargs["groups" ]
+    """
+    if("groups" not in kwargs):
+        import traceback
+        for line in traceback.format_stack():
+            print(line.strip())
+        exit()
+    """
+
+    #print(f"args={args}")
+    #print(f"kwargs={kwargs}")
+    #print(f"group={kwargs['group']}")
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
     elif dims == 2:
+        #print(f"shape: {list(nn.Conv2d(*args, **kwargs).parameters())[0].size()}")
         return nn.Conv2d(*args, **kwargs)
     elif dims == 3:
         return nn.Conv3d(*args, **kwargs)

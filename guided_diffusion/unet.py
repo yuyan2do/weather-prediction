@@ -703,8 +703,8 @@ class UNetModel(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
 
         # [bsz, 12 (time*categoy), 480, 560] -> [bsz, 12 (categoy*time), 480, 560]
-        #x_t = x[:,-3:]
-        x_t = x[:,:3]
+        x_t = x[:,-3:]
+        #x_t = x[:,:3]
 
         x_c = x.view(x.size(0), -1, 3, *(x.size()[-2:])).transpose(1,2).contiguous()
         x_c = x_c.view(x.size(0), -1, *(x.size()[-2:]))

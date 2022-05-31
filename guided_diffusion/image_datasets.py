@@ -124,7 +124,7 @@ class ImageDataset(Dataset):
         if self.samples != None:
             sample_list = self.samples[idx]
             start_idx = random.randint(0, 19)
-            start_idx = 0
+            #start_idx = 0
 
             arr = []
             y_arr = []

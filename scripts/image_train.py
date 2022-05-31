@@ -27,8 +27,8 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
-    #summary(model, input_size=(1, 12, 480, 560))
-    #return
+    summary(model, input_size=(1, 12, 480, 560))
+    return
 
     model.to(dist_util.dev())
     #schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)

@@ -97,7 +97,8 @@ class Upsample(nn.Module):
         self.dims = dims
         #print(f"up sample use_conv={use_conv}")
         if use_conv:
-            self.conv = stride_init_module(conv_nd(dims, self.channels, self.out_channels, 3, padding=1, groups=3))
+            #self.conv = stride_init_module(conv_nd(dims, self.channels, self.out_channels, 3, padding=1, groups=3))
+            self.conv = stride_init_module(conv_nd(dims, self.channels, self.out_channels, 3, padding=1))
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -132,7 +133,8 @@ class Downsample(nn.Module):
         #print(f"down sample use_conv={use_conv}")
         if use_conv:
             self.op = stride_init_module(conv_nd(
-                dims, self.channels, self.out_channels, 3, stride=stride, padding=1, groups=3
+                #dims, self.channels, self.out_channels, 3, stride=stride, padding=1, groups=3
+                dims, self.channels, self.out_channels, 3, stride=stride, padding=1
             ))
         else:
             assert self.channels == self.out_channels
@@ -172,6 +174,7 @@ class ResBlock(TimestepBlock):
         use_checkpoint=False,
         up=False,
         down=False,
+        groups=-1,
     ):
         super().__init__()
         self.channels = channels
@@ -186,7 +189,7 @@ class ResBlock(TimestepBlock):
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
-            stride_init_module(conv_nd(dims, channels, self.out_channels, 3, padding=1, groups=3)),
+            stride_init_module(conv_nd(dims, channels, self.out_channels, 3, padding=1, groups=groups) if groups >0 else conv_nd(dims, channels, self.out_channels, 3, padding=1)),
         )
 
         self.updown = up or down
@@ -216,7 +219,7 @@ class ResBlock(TimestepBlock):
             nn.SiLU(),
             nn.Dropout(p=dropout),
             zero_module(
-                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1, groups=3)
+                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1, groups=groups) if groups >0 else conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
             ),
         )
 
@@ -227,7 +230,8 @@ class ResBlock(TimestepBlock):
                 dims, channels, self.out_channels, 3, padding=1, groups=3
             )
         else:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1, groups=3)
+            #self.skip_connection = conv_nd(dims, channels, self.out_channels, 1, groups=3)
+            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
     def forward(self, x, emb=None):
         """
@@ -281,6 +285,7 @@ class AttentionBlock(nn.Module):
         num_head_channels=-1,
         use_checkpoint=False,
         use_new_attention_order=False,
+        groups=-1,
     ):
         super().__init__()
         self.channels = channels
@@ -294,7 +299,7 @@ class AttentionBlock(nn.Module):
         #print(f"num_heads={self.num_heads}")
         self.use_checkpoint = use_checkpoint
         self.norm = normalization(channels)
-        self.qkv = conv_nd(1, channels, channels * 3, 1, groups=3)
+        self.qkv = conv_nd(1, channels, channels * 3, 1, groups=groups) if groups >0 else conv_nd(1, channels, channels * 3, 1)
         if use_new_attention_order:
             # split qkv before split heads
             self.attention = QKVAttention(self.num_heads)
@@ -302,7 +307,7 @@ class AttentionBlock(nn.Module):
             # split heads before split qkv
             self.attention = QKVAttentionLegacy(self.num_heads)
 
-        self.proj_out = zero_module(conv_nd(1, channels, channels, 1, groups=3))
+        self.proj_out = zero_module(conv_nd(1, channels, channels, 1, groups=groups) if groups >0 else conv_nd(1, channels, channels, 1))
 
     def forward(self, x):
         return checkpoint(self._forward, (x,), self.parameters(), True)
@@ -510,6 +515,7 @@ class UNetModel(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        groups=3 if level ==0 else -1,
                     )
                 ]
                 ch = int(mult * model_channels)
@@ -521,6 +527,7 @@ class UNetModel(nn.Module):
                             num_heads=num_heads,
                             num_head_channels=num_head_channels,
                             use_new_attention_order=use_new_attention_order,
+                            groups=3 if level ==0 else -1,
                         )
                     )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
@@ -604,6 +611,7 @@ class UNetModel(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        groups=3 if level ==0 else -1,
                     )
                 ]
                 ch = int(model_channels * mult)
@@ -615,6 +623,7 @@ class UNetModel(nn.Module):
                             num_heads=num_heads_upsample,
                             num_head_channels=num_head_channels,
                             use_new_attention_order=use_new_attention_order,
+                            groups=3 if level ==0 else -1,
                         )
                     )
                 #if level != len(channel_mult_rev) - 1 and i == num_res_blocks:
@@ -695,7 +704,7 @@ class UNetModel(nn.Module):
 
         # [bsz, 12 (time*categoy), 480, 560] -> [bsz, 12 (categoy*time), 480, 560]
         #x_t = x[:,-3:]
-        #x_t = x[:,:3]
+        x_t = x[:,:3]
 
         x_c = x.view(x.size(0), -1, 3, *(x.size()[-2:])).transpose(1,2).contiguous()
         x_c = x_c.view(x.size(0), -1, *(x.size()[-2:]))
@@ -744,8 +753,8 @@ class UNetModel(nn.Module):
         # revert [bsz, 12 (time*categoy), 480, 560] -> [bsz, 12 (categoy*time), 480, 560]
         #x = x.view(x.size(), 3, -1, x.size()[-2:]).transpose(1,2).contiguous()
         #x = x.view(x.size(), -1, 3, x.size()[-2:])
-        #return self.out(h) + x_t
-        return self.out(h)
+        return self.out(h) + x_t
+        #return self.out(h)
         #return self.out(h) + x[:,:3]
 
 

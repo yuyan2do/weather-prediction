@@ -466,6 +466,7 @@ class UNetModel(nn.Module):
         super().__init__()
         #print(f"attention_resolutions={attention_resolutions}")
         #print(f"dropout={dropout}")
+        #print(f"resblock_updown={resblock_updown}")
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
